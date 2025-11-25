@@ -1,10 +1,28 @@
-pandas
-langchain
-langchain-core
-langchain-chroma
-langchain-text-splitters
-langchain-huggingface
-chromadb
-sentence-transformers
-python-dotenv
-safetensors
+# Core LangChain packages
+langchain==0.2.7
+langchain-core==0.2.5
+langchain-text-splitters==0.2.1
+langchain-chroma==0.1.1
+langchain-huggingface==0.1.0
+
+# Vector store
+chromadb>=0.4.22
+
+# Embeddings
+sentence-transformers>=2.6.0
+
+# HF models (embeddings + reranker)
+transformers>=4.40.0
+accelerate>=0.30.0
+torch>=2.1.0
+
+# Data processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Optional (interactive notebooks)
+jupyter
+ipykernel
+
+# For safety
+typing-extensions>=4.7.0
