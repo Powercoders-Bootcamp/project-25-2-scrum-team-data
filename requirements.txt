@@ -1,0 +1,10 @@
+pandas
+langchain
+langchain-core
+langchain-chroma
+langchain-text-splitters
+langchain-huggingface
+chromadb
+sentence-transformers
+python-dotenv
+safetensors
