@@ -145,7 +145,11 @@ def summarize_retrieved_products(
     use_reranker: bool = True,
 ) -> str:
     """
-    Offline summary (no LLM): summarize basic info about top-k hits.
+    Offline summary (no LLM): summarize basic info about top-k hits,
+    adapted to our dataset columns:
+
+        ['rating', 'rating_count', 'price', 'store',
+         'product_id', 'color', 'combined_text']
     """
     vs = load_vectorstore()
     docs = retrieve_documents(query, vs, k=k, use_reranker=use_reranker)
@@ -158,12 +162,33 @@ def summarize_retrieved_products(
 
     for i, doc in enumerate(docs, start=1):
         meta = doc.metadata
-        title = meta.get("product_name", meta.get("title", "Unknown name"))
-        brand = meta.get("brand", "Unknown brand")
+
+        product_id = meta.get("product_id", "N/A")
+        store = meta.get("store", "Unknown store")
         price = meta.get("price", "unknown price")
-        lines.append(f"{i}. {title} — {brand}, Price: {price}")
+        color = meta.get("color", None)
+        rating = meta.get("rating", None)
+        rating_count = meta.get("rating_count", None)
+
+        # Build a one-line description
+        if color:
+            title = f"Product {product_id} ({color})"
+        else:
+            title = f"Product {product_id}"
+
+        line = f"{i}. {title} — Store: {store}, Price: {price}"
+
+        if rating is not None:
+            stars = f"{rating:.1f}" if isinstance(rating, (int, float)) else rating
+            if rating_count is not None:
+                line += f", Rating: {stars} ⭐ ({rating_count} reviews)"
+            else:
+                line += f", Rating: {stars} ⭐"
+
+        lines.append(line)
 
     return "\n".join(lines)
+
 
 
 # ---------------------------------------------------------------------------
@@ -219,23 +244,44 @@ ANSWER:
 
 def print_product_card(doc: Document) -> None:
     """
-    Pretty-print a single product chunk with key metadata fields.
+    Pretty-print a single product chunk with key metadata fields,
+    adapted to our dataset columns:
+
+        ['rating', 'rating_count', 'price', 'store',
+         'product_id', 'color', 'combined_text']
     """
     meta = doc.metadata
 
-    title = meta.get("product_title", "Unknown product")
     product_id = meta.get("product_id", "N/A")
-    brand = meta.get("store", "Unknown brand")
+    store = meta.get("store", "Unknown store")
     price = meta.get("price", "Unknown price")
+    rating = meta.get("rating", None)
+    rating_count = meta.get("rating_count", None)
+    color = meta.get("color", None)
+
+    # Build a human-readable "title" line from product_id and color
+    if color:
+        title = f"Product {product_id} ({color})"
+    else:
+        title = f"Product {product_id}"
 
     print("──────────────────────────────────────────────")
     print(f"🛍️  {title}")
-    print(f"   ID: {product_id}")
-    print(f"   Brand: {brand}")
+    print(f"   Store: {store}")
     print(f"   Price: {price}")
+
+    # Only print rating info if available
+    if rating is not None:
+        stars = f"{rating:.1f}" if isinstance(rating, (int, float)) else rating
+        if rating_count is not None:
+            print(f"   Rating: {stars} ⭐ ({rating_count} reviews)")
+        else:
+            print(f"   Rating: {stars} ⭐")
+
     print("   Description snippet:")
     print("   " + doc.page_content[:250].replace("\n", " "))
     print("──────────────────────────────────────────────")
+
 
 
 def preview_vectorstore(vs: Chroma, k: int = 5) -> None:
