@@ -12,7 +12,7 @@ Includes:
 - Optional interactive CLI loops (for terminal / notebook use).
 
 All embeddings / LLMs / reranker are from Hugging Face.
-No OpenAI dependency.
+No OpenAI dependency in this module.
 """
 
 from typing import List, Dict, Any, Optional
@@ -20,7 +20,7 @@ from typing import List, Dict, Any, Optional
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
 
-from .settings import CHROMA_DIR, COLLECTION_NAME
+from .settings import CHROMA_DIR
 from .config import get_bge_embeddings, get_bge_reranker, get_hf_llm
 
 
@@ -31,15 +31,18 @@ from .config import get_bge_embeddings, get_bge_reranker, get_hf_llm
 
 def load_vectorstore() -> Chroma:
     """
-    Load the existing Chroma vector store with the same
-    collection_name + persist_directory used in ingestion.
+    Load the existing Chroma vector store from CHROMA_DIR.
+
+    We deliberately do NOT pass `collection_name` here, so Chroma uses the
+    default collection (currently "langchain"), which matches the DB built
+    in the data notebook.
     """
     embeddings = get_bge_embeddings()
 
     vectorstore = Chroma(
-        collection_name=COLLECTION_NAME,
-        embedding_function=embeddings,
         persist_directory=str(CHROMA_DIR),
+        embedding_function=embeddings,
+        # no collection_name → default "langchain"
     )
     return vectorstore
 

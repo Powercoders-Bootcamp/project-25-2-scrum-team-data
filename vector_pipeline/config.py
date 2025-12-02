@@ -4,11 +4,10 @@ config.py
 Model configuration utilities for the vector pipeline:
 
 - get_bge_embeddings():
-    Sentence encoder `BAAI/bge-base-en-v1.5` for building & querying Chroma.
+    Sentence encoder for building & querying Chroma.
 
 - CrossEncoderReranker + get_bge_reranker():
-    Optional second-stage reranker `BAAI/bge-reranker-base` using a
-    cross-encoder model.
+    Optional second-stage reranker using a cross-encoder model.
 
 - get_hf_llm():
     Hugging Face based LLM (via transformers + LangChain HuggingFacePipeline)
@@ -24,36 +23,38 @@ from transformers import (
     AutoModelForCausalLM,
     pipeline,
 )
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_huggingface import HuggingFacePipeline
+from langchain_huggingface import HuggingFaceEmbeddings, HuggingFacePipeline
+
+from .settings import EMBEDDING_MODEL_NAME, RERANKER_MODEL_NAME, LLM_MODEL_NAME
 
 
-
-# ------------- Embeddings -------------------------------------------------
+# ---------------------------------------------------------------------------
+# Embeddings (bi-encoder)
+# ---------------------------------------------------------------------------
 
 
 def get_bge_embeddings() -> HuggingFaceEmbeddings:
     """
-    Create a HuggingFace embeddings object for BAAI/bge-base-en-v1.5.
+    Create a HuggingFace embeddings object for the configured embedding model.
 
-    This downloads the model from Hugging Face on first run and then
-    uses it locally. It relies on sentence-transformers under the hood.
-
-    The `normalize_embeddings=True` part is recommended for retrieval
-    so that cosine similarity behaves nicely.
+    We match Muhammet's configuration:
+    - model_name: EMBEDDING_MODEL_NAME (e.g. "BAAI/bge-base-en-v1.5")
+    - device: "cuda" if available, else "cpu"
+    - normalize_embeddings=True (recommended for cosine similarity)
     """
-    model_name = "BAAI/bge-base-en-v1.5"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
     embeddings = HuggingFaceEmbeddings(
-        model_name=model_name,
-        encode_kwargs={"normalize_embeddings": True}, # L2-normalized
+        model_name=EMBEDDING_MODEL_NAME,
+        model_kwargs={"device": device},
+        encode_kwargs={"normalize_embeddings": True},
     )
     return embeddings
 
 
-
-# ------------- Cross-encoder reranker --------------------------------------
-
+# ---------------------------------------------------------------------------
+# Cross-encoder reranker
+# ---------------------------------------------------------------------------
 
 
 class CrossEncoderReranker:
@@ -61,13 +62,13 @@ class CrossEncoderReranker:
     Simple cross-encoder reranker wrapper using HF Transformers.
 
     Usage:
-        reranker = CrossEncoderReranker("BAAI/bge-reranker-base")
+        reranker = CrossEncoderReranker()
         scores = reranker.score("query text", ["doc1", "doc2", ...])
 
     Higher score = more relevant.
     """
 
-    def __init__(self, model_name: str = "BAAI/bge-reranker-base", device: Optional[str] = None):
+    def __init__(self, model_name: str = RERANKER_MODEL_NAME, device: Optional[str] = None):
         self.model_name = model_name
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -116,19 +117,13 @@ def get_bge_reranker() -> CrossEncoderReranker:
     """
     global _reranker_instance
     if _reranker_instance is None:
-        _reranker_instance = CrossEncoderReranker("BAAI/bge-reranker-base")
+        _reranker_instance = CrossEncoderReranker(RERANKER_MODEL_NAME)
     return _reranker_instance
 
 
-
-# ------------- Hugging Face LLM for RAG --------------------------------------
-
-
-# Choose a chat/instruct model that fits your hardware.
-
-#_HF_LLM_MODEL_NAME = "HuggingFaceH4/zephyr-7b-beta"
-
-_HF_LLM_MODEL_NAME = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+# ---------------------------------------------------------------------------
+# Hugging Face LLM for RAG
+# ---------------------------------------------------------------------------
 
 
 _llm_instance: Optional[HuggingFacePipeline] = None
@@ -139,7 +134,7 @@ def get_hf_llm() -> HuggingFacePipeline:
     Return a singleton LangChain LLM built on a Hugging Face
     text-generation pipeline.
 
-    This replaces any OpenAI Chat model usage.
+    This replaces any OpenAI Chat model usage for the vector_pipeline part.
     """
     global _llm_instance
     if _llm_instance is not None:
@@ -147,9 +142,9 @@ def get_hf_llm() -> HuggingFacePipeline:
 
     device = 0 if torch.cuda.is_available() else -1
 
-    tokenizer = AutoTokenizer.from_pretrained(_HF_LLM_MODEL_NAME)
+    tokenizer = AutoTokenizer.from_pretrained(LLM_MODEL_NAME)
     model = AutoModelForCausalLM.from_pretrained(
-        _HF_LLM_MODEL_NAME,
+        LLM_MODEL_NAME,
         torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
         device_map="auto" if torch.cuda.is_available() else None,
     )

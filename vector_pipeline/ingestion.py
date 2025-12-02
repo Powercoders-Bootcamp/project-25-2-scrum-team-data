@@ -26,11 +26,17 @@ from .settings import (
     DATA_PATH,
     COMBINED_TEXT_COLUMN,
     CHROMA_DIR,
-    COLLECTION_NAME,
+    CHROMA_ARCHIVE,
+    COLLECTION_NAME,  # currently "langchain"
     CHUNK_SIZE,
     CHUNK_OVERLAP,
 )
 from .config import get_bge_embeddings
+
+
+# ---------------------------------------------------------------------------
+# Data loading + conversion to Documents
+# ---------------------------------------------------------------------------
 
 
 def load_dataframe() -> pd.DataFrame:
@@ -78,8 +84,7 @@ def dataframe_to_documents(df: pd.DataFrame) -> List[Document]:
         # Add stable row identifier to metadata.
         metadata["row_index"] = int(row_index)
 
-        # Optional: you could prepend product name to page_content
-        # to give it extra semantic weight.
+        # Optional: prepend product name to page_content for extra weight.
         # name = metadata.get("product_name") or metadata.get("title")
         # if name:
         #     page_content = f"{name}\n\n{page_content}"
@@ -105,8 +110,12 @@ def chunk_documents(documents: List[Document]) -> List[Document]:
         add_start_index=True,
     )
 
-    chunked_docs = splitter.split_documents(documents)
-    return chunked_docs
+    return splitter.split_documents(documents)
+
+
+# ---------------------------------------------------------------------------
+# Build Chroma vectorstore from scratch (one-time heavy job)
+# ---------------------------------------------------------------------------
 
 
 def build_chroma_vectorstore() -> Chroma:
@@ -120,6 +129,10 @@ def build_chroma_vectorstore() -> Chroma:
       5. Persist to disk (via `persist_directory`).
 
     This will delete any existing Chroma directory first.
+
+    NOTE: We intentionally do **not** set an explicit `collection_name` here,
+    so Chroma uses its default (currently "langchain"), which matches the DB
+    built in Muhammet's notebook.
     """
     print(f"Loading data from {DATA_PATH} ...")
     df = load_dataframe()
@@ -147,35 +160,76 @@ def build_chroma_vectorstore() -> Chroma:
     vectorstore = Chroma.from_documents(
         documents=chunked_docs,
         embedding=embeddings,
-        collection_name=COLLECTION_NAME,
         persist_directory=str(CHROMA_DIR),
+        collection_metadata={"hnsw:space": "cosine"},
+        # no collection_name → default "langchain"
     )
 
     print("Chroma DB built and stored.")
+    print("Document count:", vectorstore._collection.count())
     return vectorstore
+
+
+# ---------------------------------------------------------------------------
+# Load or unzip an existing Chroma vectorstore (runtime path)
+# ---------------------------------------------------------------------------
 
 
 def build_or_load_vectorstore() -> Chroma:
     """
-    If the Chroma directory already exists and is non-empty, load the
-    vectorstore from disk. Otherwise, build it from scratch.
+    Load an existing Chroma vectorstore if possible.
 
-    This avoids re-embedding everything every time you run your notebook.
+    Priority:
+      1. If the Chroma directory already exists and is non-empty,
+         load it from disk (using the default collection name,
+         e.g. 'langchain' as in the shared notebook).
+      2. Else, if a zipped archive (chroma_db.zip) exists, unzip it
+         into CHROMA_DIR and then load the vectorstore.
+      3. If neither directory nor archive exist, build the DB from scratch.
+
+    This avoids re-embedding everything every time someone clones the repo
+    and ensures we use the same collection that was created in the
+    data teammate's notebook.
     """
+
+    # 1) Existing directory → just load it
     if CHROMA_DIR.exists() and any(CHROMA_DIR.iterdir()):
         print(f"Loading existing Chroma DB from {CHROMA_DIR} ...")
         embeddings = get_bge_embeddings()
         vectorstore = Chroma(
-            collection_name=COLLECTION_NAME,
-            embedding_function=embeddings,
             persist_directory=str(CHROMA_DIR),
-            # You *could* experiment with explicit cosine space:
-            # collection_metadata={"hnsw:space": "cosine"},
+            embedding_function=embeddings,
+            # ⚠️ No collection_name here on purpose:
+            # we want to load the default collection ("langchain").
         )
         print("Vectorstore loaded successfully.")
+        print("Document count:", vectorstore._collection.count())
         return vectorstore
 
-    print("No existing DB found. Building Chroma vectorstore ...")
+    # 2) No directory (or empty), but archive exists → unzip & load
+    if CHROMA_ARCHIVE.exists():
+        print(f"No Chroma directory found, but archive exists at {CHROMA_ARCHIVE}.")
+        print("Unpacking Chroma DB archive into CHROMA_DIR ...")
+
+        # Remove any existing directory (empty / wrong)
+        if CHROMA_DIR.exists():
+            shutil.rmtree(CHROMA_DIR)
+
+        CHROMA_DIR.mkdir(parents=True, exist_ok=True)
+        shutil.unpack_archive(str(CHROMA_ARCHIVE), extract_dir=str(CHROMA_DIR))
+
+        print("Archive unpacked. Loading vectorstore ...")
+        embeddings = get_bge_embeddings()
+        vectorstore = Chroma(
+            persist_directory=str(CHROMA_DIR),
+            embedding_function=embeddings,
+        )
+        print("Vectorstore loaded successfully.")
+        print("Document count:", vectorstore._collection.count())
+        return vectorstore
+
+    # 3) Nothing exists → build from scratch
+    print("No existing Chroma DB directory or archive found. Building Chroma vectorstore ...")
     return build_chroma_vectorstore()
 
 
