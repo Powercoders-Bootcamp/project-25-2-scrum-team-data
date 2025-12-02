@@ -125,8 +125,11 @@ def get_bge_reranker() -> CrossEncoderReranker:
 
 
 # Choose a chat/instruct model that fits your hardware.
-# If this is too heavy, try e.g. "google/gemma-2b-it" or another small instruct model.
-_HF_LLM_MODEL_NAME = "HuggingFaceH4/zephyr-7b-beta"
+
+#_HF_LLM_MODEL_NAME = "HuggingFaceH4/zephyr-7b-beta"
+
+_HF_LLM_MODEL_NAME = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+
 
 _llm_instance: Optional[HuggingFacePipeline] = None
 
