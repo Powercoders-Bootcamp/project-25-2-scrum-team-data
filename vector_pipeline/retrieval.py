@@ -51,9 +51,17 @@ def load_vectorstore() -> Chroma:
 _llm = get_hf_llm()
 
 
+# Singleton LLM for RAG (Hugging Face).
+_llm = None
+
+
 def get_llm():
-    """Return the shared Hugging Face LLM instance."""
+    """Return the shared Hugging Face LLM instance (lazy-loaded)."""
+    global _llm
+    if _llm is None:
+        _llm = get_hf_llm()
     return _llm
+
 
 
 # ---------------------------------------------------------------------------

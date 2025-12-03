@@ -17,7 +17,7 @@ sentence-transformers>=2.6.0
 # HF models (embeddings + reranker)
 transformers>=4.40.0
 accelerate>=0.30.0
-torch>=2.1.0
+torch>=2.6
 
 # Data processing
 pandas>=2.0.0
