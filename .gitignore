@@ -141,6 +141,3 @@ chroma_db/
 
 # OpenRouter API Key
 .env
-
-# tmp files
-wrapper_test copy.ipynb
