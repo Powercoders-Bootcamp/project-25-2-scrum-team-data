@@ -20,7 +20,9 @@ from typing import List, Dict, Any
 import pandas as pd
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
-from langchain_chroma import Chroma
+from langchain_community.vectorstores import Chroma
+#from langchain_chroma import Chroma
+
 
 from .settings import (
     DATA_PATH,
@@ -162,7 +164,6 @@ def build_chroma_vectorstore() -> Chroma:
         embedding=embeddings,
         persist_directory=str(CHROMA_DIR),
         collection_metadata={"hnsw:space": "cosine"},
-        # no collection_name → default "langchain"
     )
 
     print("Chroma DB built and stored.")
@@ -199,8 +200,7 @@ def build_or_load_vectorstore() -> Chroma:
         vectorstore = Chroma(
             persist_directory=str(CHROMA_DIR),
             embedding_function=embeddings,
-            # ⚠️ No collection_name here on purpose:
-            # we want to load the default collection ("langchain").
+            collection_metadata={"hnsw:space": "cosine"}
         )
         print("Vectorstore loaded successfully.")
         print("Document count:", vectorstore._collection.count())
@@ -223,6 +223,7 @@ def build_or_load_vectorstore() -> Chroma:
         vectorstore = Chroma(
             persist_directory=str(CHROMA_DIR),
             embedding_function=embeddings,
+            collection_metadata={"hnsw:space": "cosine"}
         )
         print("Vectorstore loaded successfully.")
         print("Document count:", vectorstore._collection.count())

@@ -17,7 +17,8 @@ No OpenAI dependency in this module.
 
 from typing import List, Dict, Any, Optional
 
-from langchain_chroma import Chroma
+#from langchain_chroma import Chroma
+from langchain_community.vectorstores import Chroma
 from langchain_core.documents import Document
 
 from .settings import CHROMA_DIR
@@ -48,26 +49,18 @@ def load_vectorstore() -> Chroma:
 
 
 # Singleton LLM for RAG (Hugging Face).
-_llm = get_hf_llm()
+#_llm = get_hf_llm()
 
 
-# Singleton LLM for RAG (Hugging Face).
-_llm = None
-
-
-def get_llm():
-    """Return the shared Hugging Face LLM instance (lazy-loaded)."""
-    global _llm
-    if _llm is None:
-        _llm = get_hf_llm()
-    return _llm
+#def get_llm():
+#    """Return the shared Hugging Face LLM instance."""
+#    return _llm
 
 
 
 # ---------------------------------------------------------------------------
 # Retrieval + reranking
 # ---------------------------------------------------------------------------
-
 
 def retrieve_documents(
     query: str,
@@ -78,22 +71,15 @@ def retrieve_documents(
 ) -> List[Document]:
     """
     Retrieve top-k documents for `query` from `vs`.
-
-    If `use_reranker` is False:
-        - simple vector similarity search with k nearest neighbors.
-
-    If `use_reranker` is True:
-        - first retrieve `initial_k` candidates by vector similarity
-          (default: 4 * k).
-        - then re-score them with a cross-encoder reranker.
-        - finally return top-k reranked results.
     """
+
     if not use_reranker:
         retriever = vs.as_retriever(
             search_type="similarity",
             search_kwargs={"k": k},
         )
-        return retriever.invoke(query)
+        docs = retriever.invoke(query)  # returns list[Document]
+        return docs
 
     # Two-stage retrieval: vector search, then cross-encoder reranking.
     if initial_k is None:
@@ -103,15 +89,16 @@ def retrieve_documents(
         search_type="similarity",
         search_kwargs={"k": initial_k},
     )
-    candidate_docs = base_retriever.invoke(query)
+    candidate_docs = base_retriever.invoke(query)  # list[Document]
 
     if not candidate_docs:
         return []
 
     reranker = get_bge_reranker()
-    scores = reranker.score(query, [d.page_content for d in candidate_docs])
+    texts = [d.page_content for d in candidate_docs]
+    scores = reranker.score(query, texts)  # list[float]
 
-    # Sort docs by reranker score descending
+    # Pair and sort by score descending
     pairs = list(zip(candidate_docs, scores))
     pairs.sort(key=lambda t: t[1], reverse=True)
 

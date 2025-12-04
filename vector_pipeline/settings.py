@@ -37,7 +37,9 @@ RERANKER_MODEL_NAME: str = "BAAI/bge-reranker-base"
 
 # LLM model for RAG
 #LLM_MODEL_NAME: str = "HuggingFaceH4/zephyr-7b-beta"
-
-#LLM_MODEL_NAME: str = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-
 LLM_MODEL_NAME = "sshleifer/tiny-gpt2"
+
+CLOUD_LLM_MODEL_NAME: str = "google/gemma-3-27b-it:free",
+
+# Path to OpenRouter API key
+OPENROUTER_API_KEY_PATH: str = PROJECT_ROOT / ".env"

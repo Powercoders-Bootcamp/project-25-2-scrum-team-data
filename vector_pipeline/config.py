@@ -60,12 +60,6 @@ def get_bge_embeddings() -> HuggingFaceEmbeddings:
 class CrossEncoderReranker:
     """
     Simple cross-encoder reranker wrapper using HF Transformers.
-
-    Usage:
-        reranker = CrossEncoderReranker()
-        scores = reranker.score("query text", ["doc1", "doc2", ...])
-
-    Higher score = more relevant.
     """
 
     def __init__(self, model_name: str = RERANKER_MODEL_NAME, device: Optional[str] = None):
@@ -77,34 +71,53 @@ class CrossEncoderReranker:
         self.model.to(self.device)
         self.model.eval()
 
-    def score(self, query: str, docs: List[str]) -> List[float]:
+    def score(self, query: str, docs: List[str], batch_size: int = 16) -> List[float]:
         """
         Return a list of relevance scores (one per doc) for the given query.
+        Handles batching.
+        Higher score = more relevant.
         """
         if not docs:
             return []
 
-        queries = [query] * len(docs)
+        scores = []
+        # process in batches to avoid OOM
+        for i in range(0, len(docs), batch_size):
+            batch_docs = docs[i : i + batch_size]
+            queries = [query] * len(batch_docs)
 
-        inputs = self.tokenizer(
-            queries,
-            docs,
-            padding=True,
-            truncation=True,
-            max_length=512,
-            return_tensors="pt",
-        )
-        inputs = {k: v.to(self.device) for k, v in inputs.items()}
+            inputs = self.tokenizer(
+                queries,
+                batch_docs,
+                padding=True,
+                truncation=True,
+                max_length=512,
+                return_tensors="pt",
+            )
+            inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
-        with torch.no_grad():
-            logits = self.model(**inputs).logits  # [batch, 1] or [batch]
-        scores = logits.squeeze(-1).tolist()
+            with torch.no_grad():
+                out = self.model(**inputs).logits  # shape: (batch, n_labels) or (batch, 1)
+            # reduce logits -> score per example
+            # If multiple labels, you may want to take e.g. logits[:, 1] or logits.max(dim=1)
+            if out.ndim == 2 and out.size(1) == 1:
+                batch_scores = out.squeeze(-1).cpu().tolist()
+            elif out.ndim == 2 and out.size(1) > 1:
+                # assume higher logit corresponds to relevance: take max or positive class
+                # adjust this line depending on reranker head (binary/class)
+                batch_scores = out.max(dim=1).values.cpu().tolist()
+            else:
+                batch_scores = out.cpu().tolist()
+                # ensure list of floats
+                batch_scores = [float(x) for x in batch_scores]
 
-        if isinstance(scores, float):
-            scores = [scores]
+            # if single float returned, normalize to list
+            if isinstance(batch_scores, float):
+                batch_scores = [batch_scores]
+
+            scores.extend(batch_scores)
 
         return scores
-
 
 _reranker_instance: Optional[CrossEncoderReranker] = None
 
@@ -112,7 +125,6 @@ _reranker_instance: Optional[CrossEncoderReranker] = None
 def get_bge_reranker() -> CrossEncoderReranker:
     """
     Return a singleton instance of the BGE cross-encoder reranker.
-
     Avoids re-loading model weights for each request.
     """
     global _reranker_instance

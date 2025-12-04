@@ -30,8 +30,9 @@ when calling run_chat().
 """
 
 from typing import Any, Dict, List, Optional
+from langchain_community.vectorstores import Chroma
 
-from langchain_chroma import Chroma
+#from langchain_chroma import Chroma
 
 from .ingestion import build_or_load_vectorstore
 from .retrieval import retrieve_documents, rag_answer
