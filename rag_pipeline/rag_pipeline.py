@@ -231,8 +231,7 @@ def build_or_load_vectorstore() -> Chroma:
         if CHROMA_DIR.exists():
             shutil.rmtree(CHROMA_DIR)
 
-        CHROMA_DIR.mkdir(parents=True, exist_ok=True)
-        shutil.unpack_archive(str(CHROMA_ARCHIVE), extract_dir=str(CHROMA_DIR))
+        shutil.unpack_archive(str(CHROMA_ARCHIVE), extract_dir=str(CHROMA_DIR), format="zip")
 
         print("Archive unpacked. Loading vectorstore ...")
         embeddings = get_bge_embeddings()
