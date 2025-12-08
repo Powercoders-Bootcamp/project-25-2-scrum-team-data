@@ -181,6 +181,8 @@ def retrieve_documents(
 # Load or unzip an existing Chroma vectorstore (runtime path)
 # ---------------------------------------------------------------------------
 
+# flag for vector database loading. If True, skip loading.
+_VECTORSTORE: Optional[Chroma] = None
 
 def build_or_load_vectorstore() -> Chroma:
     """
@@ -199,6 +201,12 @@ def build_or_load_vectorstore() -> Chroma:
     data teammate's notebook.
     """
 
+    global _VECTORSTORE
+
+    # return cached instance if already loaded
+    if _VECTORSTORE is not None:
+        return _VECTORSTORE
+
     # 1) Existing directory → just load it
     if CHROMA_DIR.exists() and any(CHROMA_DIR.iterdir()):
         print(f"Loading existing Chroma DB from {CHROMA_DIR} ...")
@@ -210,7 +218,9 @@ def build_or_load_vectorstore() -> Chroma:
         )
         print("Vectorstore loaded successfully.")
         print("Document count:", vectorstore._collection.count())
-        return vectorstore
+        
+        _VECTORSTORE = vectorstore
+        return _VECTORSTORE
 
     # 2) No directory (or empty), but archive exists → unzip & load
     else:
@@ -233,7 +243,9 @@ def build_or_load_vectorstore() -> Chroma:
         )
         print("Vectorstore loaded successfully.")
         print("Document count:", vectorstore._collection.count())
-        return vectorstore
+        
+        _VECTORSTORE = vectorstore
+        return _VECTORSTORE
 
 # ---------------------------------------------------------------------------
 # Prompt template
@@ -369,7 +381,7 @@ def ask_question(
         The generated answer from the LLM.
     """
 
-    # 1) Load or build vectorstore
+    # 1) Load or build vectorstore (cached singleton)
     vs: Chroma = build_or_load_vectorstore()
 
     # 2) Retrieve documents
