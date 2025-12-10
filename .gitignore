@@ -141,3 +141,6 @@ chroma_db/
 
 # OpenRouter API Key
 .env
+
+
+venv
