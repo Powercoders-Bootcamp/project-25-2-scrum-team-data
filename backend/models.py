@@ -19,8 +19,8 @@ class ChatRequest(BaseModel):
     messages: list[Message]
     
     # Optional RAG parameters
-    top_k: int = 4
-    use_reranker: bool = True
+    top_k: int = 5
+    use_reranker: bool = False
 
 # --- 3. Response Models (Output from RAG team) ---
 
