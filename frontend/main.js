@@ -1,5 +1,6 @@
     
         import { sendMessageToChat } from "./chatAPI/chatAPI.js";
+         import { nanoid } from "https://cdn.jsdelivr.net/npm/nanoid/+esm";
 
         const chatbotToggle = document.getElementById('chatbotToggle');
         const chatbotContainer = document.getElementById('chatbotContainer');
@@ -15,19 +16,20 @@
         let isLoading = false;
         let isFirstOpen = true;
 
-        const session_id = JSON.parse(sessionStorage.getItem('session_id'));
+        let session_id = JSON.parse(sessionStorage.getItem('session_id'));
 
         //Open chatbot
         chatbotToggle.addEventListener('click', () => {
             chatbotContainer.classList.add('open');
             chatbotToggle.classList.add('hidden');
-
-            if ( isFirstOpen && session_id) {
-                addMessageToChat(REPEAT_GREATING_MESSAGE, 'assistant');
-            } else if (isFirstOpen) {
+            
+            if(!session_id && isFirstOpen)  {
+                session_id  = nanoid();
                 addMessageToChat(GREETING_MESSAGE, 'assistant');
-            }
-
+                sessionStorage.setItem('session_id', JSON.stringify(session_id));
+            } else if ( isFirstOpen && session_id) {
+                addMessageToChat(REPEAT_GREATING_MESSAGE, 'assistant');
+            } 
             isFirstOpen = false;
             chatbotInput.focus();
         });
