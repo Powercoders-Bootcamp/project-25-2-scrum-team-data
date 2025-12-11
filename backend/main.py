@@ -1,12 +1,17 @@
 # backend/main.py
 
+import os
+# Disable tokenizers parallelism to avoid fork deadlocks
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 from fastapi import FastAPI, HTTPException
 from typing import List, Optional, Dict, Any
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import uuid 
 import json
-import redis 
+import traceback
+#import redis 
 
 # IMPORTANT: Requires the updated Pydantic models from models.py
 from .models import ChatRequest, ChatResponse, Message 
@@ -15,8 +20,9 @@ from .models import ChatRequest, ChatResponse, Message
 try:
     # --- CORRECTED IMPORT PATH ---
     # We are importing the function 'ask_question' from the module 'rag_pipeline.rag_pipeline'
-    from rag_pipeline.rag_pipeline import ask_question as rag_ask_question
-    
+    # from rag_pipeline.rag_pipeline import ask_question as rag_ask_question
+    from multi_turn_pipeline.rag_pipeline import ask_question as rag_ask_question
+
     RAG_SERVICE_READY = True
     print("FastAPI server initialized successfully with RAG Service.")
     
@@ -46,6 +52,14 @@ app.add_middleware(
 # 2. API ENDPOINTS
 # ----------------------------------------------------------------------
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint to verify the API is running."""
+    return {
+        "status": "healthy",
+        "rag_service_ready": RAG_SERVICE_READY
+    }
+
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat_handler(req: ChatRequest):
     """
@@ -56,6 +70,13 @@ async def chat_handler(req: ChatRequest):
         raise HTTPException(status_code=503, detail="RAG Service is currently unavailable.")
         
     try:
+        print(f"\n📥 Incoming request - session_id: {req.session_id}, user_id: {req.user_id}")
+        print(f"   Messages count: {len(req.messages)}")
+        
+        # Validate session_id - it must be provided
+        if not req.session_id or not req.session_id.strip():
+            raise ValueError("session_id is required and cannot be empty.")
+        
         # 1. Extract the user query and RAG parameters
         # The user's query is always the content of the LAST message in the history list.
         if not req.messages:
@@ -63,15 +84,20 @@ async def chat_handler(req: ChatRequest):
             
         # Get the content of the last message (the user's current query)
         user_query = req.messages[-1].content 
+        print(f"   User query: {user_query[:100]}...")
 
         # --- CRITICAL FIX: Calling rag_pipeline.ask_question with only the arguments it accepts ---
-        # The rag_pipeline.py function only accepts (question, k, use_reranker) and returns a string.
+        # The rag_pipeline.py function accepts (question, k, use_reranker, session_id) and returns a string.
+        print(f"\n🔄 Calling ask_question with session_id={req.session_id}")
         html_answer_string = rag_ask_question(
             question=user_query, 
             k=req.top_k, 
-            use_reranker=req.use_reranker
+            use_reranker=req.use_reranker,
+            session_id=req.session_id.strip()  # Ensure no whitespace
         )
         # ---------------------------------------------------------------------------------------
+        
+        print(f"✅ Got answer from LLM (length: {len(html_answer_string)})")
 
         # 2. Format the string output into the expected ChatResponse model
 
@@ -84,23 +110,32 @@ async def chat_handler(req: ChatRequest):
         # The V1 architecture does not return retrieved documents, so we pass an empty list
         retrieved_data = []
 
-        return ChatResponse(
+        response = ChatResponse(
             status="success",
             session_id=req.session_id,
             answer=html_answer_string, # The final answer string
             messages=updated_messages,  # The complete, updated history
             retrieved=retrieved_data    # Empty list for now
         )
+        
+        print(f"📤 Sending response with {len(updated_messages)} messages\n")
+        return response
 
+    except ValueError as e:
+        # Log the detailed error on the server side
+        print(f"\n❌ Validation Error: {e}")
+        print(f"   Traceback: {traceback.format_exc()}")
+        
+        # Return 400 Bad Request for validation errors
+        raise HTTPException(status_code=400, detail=str(e))
+        
     except Exception as e:
         # Log the detailed error on the server side
-        print(f"Internal RAG Chat Error: {e}")
-        # Re-raise the exception as a 500 HTTP response
-        raise HTTPException(status_code=500, detail={
-            "status": "error",
-            "error_code": "INTERNAL_ERROR",
-            "message": f"Unexpected error while generating response from RAG service: {str(e)} \n(Possible causes: Missing/corrupted chroma_db.zip, LLM API failure, or an issue in rag_pipeline.py)"
-        })
+        print(f"\n❌ Internal RAG Chat Error: {e}")
+        print(f"   Traceback: {traceback.format_exc()}")
+        
+        # Re-raise the exception as a 500 HTTP response with detailed error info
+        raise HTTPException(status_code=500, detail=f"Unexpected error while generating response from RAG service: {str(e)}")
 
 
 # ----------------------------------------------------------------------
