@@ -40,12 +40,22 @@
             ul strong, ol strong {
                 color: var(--assistant-text);
             }
+
+
+
+
+            h1 {
+            text-align: center;
+            color: var(--primary-600);
+            }
+
+
         .container {
             margin-right: auto;
             margin-left: auto;
             padding-left: 15px;
             padding-right: 15px;
-            max-width: 1200px;
+            max-width: 900px;
         }
 
         .chatbot-toggle {

@@ -27,7 +27,7 @@
                 session_id  = nanoid();
                 addMessageToChat(GREETING_MESSAGE, 'assistant');
                 sessionStorage.setItem('session_id', JSON.stringify(session_id));
-            } else if ( isFirstOpen && session_id) {
+            } else if ( isFirstOpen) {
                 addMessageToChat(REPEAT_GREATING_MESSAGE, 'assistant');
             } 
             isFirstOpen = false;
@@ -88,6 +88,7 @@
                 addMessageToChat(content, 'assistant');
                 chatbotSend.innerHTML = 'Send'
                 setDisabled(chatbotInput, false)
+                chatbotInput.focus();
             }
         }
 
