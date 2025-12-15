@@ -1,6 +1,6 @@
-        import { nanoid } from 'https://cdn.jsdelivr.net/npm/nanoid/+esm';
     
         import { sendMessageToChat } from "./chatAPI/chatAPI.js";
+         import { nanoid } from "https://cdn.jsdelivr.net/npm/nanoid/+esm";
 
         const chatbotToggle = document.getElementById('chatbotToggle');
         const chatbotContainer = document.getElementById('chatbotContainer');
@@ -11,36 +11,25 @@
 
         const GREETING_MESSAGE = "Hello, I'm an AI assistant. How can I help you?";
         const ERROR_MESSAGE = "Sorry, something went wrong while processing your request.";
+        const REPEAT_GREATING_MESSAGE = "Welcome back! HoI remember everething we talked about last time. How can I assist you further?";
 
         let isLoading = false;
-        const session_id = JSON.parse(sessionStorage.getItem('session_id'));
-        const messages_history = JSON.parse(sessionStorage.getItem('messages-history')) || [];
-        const user_id = JSON.parse(localStorage.getItem('user_id'));
-
-
-        if(!user_id) {
-            localStorage.setItem('user_id', JSON.stringify(nanoid()));
-        }
-
-        if (!session_id) {
-            sessionStorage.setItem('session_id', JSON.stringify(nanoid()));
-        }
-
         let isFirstOpen = true;
 
+        let session_id = JSON.parse(sessionStorage.getItem('session_id'));
 
         //Open chatbot
         chatbotToggle.addEventListener('click', () => {
             chatbotContainer.classList.add('open');
             chatbotToggle.classList.add('hidden');
-
-            if (messages_history.length && isFirstOpen) {
-                getChatHistory();
-            } else if (isFirstOpen) {
+            
+            if(!session_id && isFirstOpen)  {
+                session_id  = nanoid();
                 addMessageToChat(GREETING_MESSAGE, 'assistant');
-                setMessageToStorage(GREETING_MESSAGE, 'assistant');
-            }
-
+                sessionStorage.setItem('session_id', JSON.stringify(session_id));
+            } else if ( isFirstOpen) {
+                addMessageToChat(REPEAT_GREATING_MESSAGE, 'assistant');
+            } 
             isFirstOpen = false;
             chatbotInput.focus();
         });
@@ -61,13 +50,11 @@
             if (e.key === 'Enter' && !isLoading && !chatbotSend.disabled) sendMessage();
         });
 
-
         function addMessageToChat (markup, sender) {
             chatbotMessages.innerHTML += makeMessageMarkup(markup, sender);
             chatbotMessages.scrollTop = chatbotMessages.scrollHeight;
 
         }
-
 
         function makeMessageMarkup (message, sender) {          
              return `<div class="message ${sender}">
@@ -75,25 +62,21 @@
             <div class="message-content">${message}</div>
             </div>`
         }
-
-
         async function sendMessage() {
             isLoading = true; //Turn on loading 
             chatbotSend.innerHTML = "<span class='loader'></span>" //Show loader in the send button
             const text = chatbotInput.value.trim();
             addMessageToChat(text, 'user');
-            setMessageToStorage(text, 'user');
             setDisabled(chatbotSend, true)   //Disable user input and send button during loading
             setDisabled(chatbotInput, true)
-            
 
             let content;
 
             try {
-            const answer = await sendMessageToChat();
-            content = answer;
-            // setMessageToStorage(answer, 'assistant');
-            // addMessageToChat(answer, 'assistant');
+
+            const check = await sendMessageToChat(chatbotInput.value.trim()); 
+            content = check;
+            console.log('object :>> ', check);
             chatbotInput.value = ''; //Clear input value if all good
 
          }catch (error) {
@@ -102,18 +85,12 @@
                 
             } finally {
                 isLoading = false;
-                setMessageToStorage(content, 'assistant');
                 addMessageToChat(content, 'assistant');
                 chatbotSend.innerHTML = 'Send'
                 setDisabled(chatbotInput, false)
+                chatbotInput.focus();
             }
         }
-
-        function getChatHistory() {
-                chatbotMessages.innerHTML = makeHistoryMarkup();
-                chatbotMessages.scrollTop = chatbotMessages.scrollHeight;
-        }
-
 
         function onInputChange({target : {value}}) {
             if (!value.trim()) {
@@ -128,13 +105,4 @@
         }
 
 
-        function setMessageToStorage(content, role) {
-            messages_history.push({role, content});
-            sessionStorage.setItem('messages-history', JSON.stringify(messages_history))  
-        }
-
-        function makeHistoryMarkup() {
-            const markup = messages_history.reduce((acc, {role, content}) => acc += makeMessageMarkup(content, role), '')   
-            return markup     
-        }
 

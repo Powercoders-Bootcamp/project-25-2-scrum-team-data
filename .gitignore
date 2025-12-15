@@ -138,9 +138,11 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 chroma_db/
+chat_history.db/
 
 # OpenRouter API Key
 .env
 
 
 venv
+chat_history.db

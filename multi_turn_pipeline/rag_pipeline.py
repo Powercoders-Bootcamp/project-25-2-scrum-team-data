@@ -21,12 +21,15 @@ from langchain_core.runnables import RunnableParallel, RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.documents import Document
 
+from .history_db import get_user_session, save_chat_history
 from .settings import (CHROMA_DIR, 
                        CHROMA_ARCHIVE,
                        OPENROUTER_API_KEY_PATH, 
                        CLOUD_LLM_MODEL_NAME, 
                        EMBEDDING_MODEL_NAME,
-                       RERANKER_MODEL_NAME)
+                       RERANKER_MODEL_NAME
+                       )
+
 
 # ---------------------------------------------------------------------------
 # Cross-encoder reranker
@@ -114,8 +117,6 @@ def get_bge_reranker() -> CrossEncoderReranker:
 def get_bge_embeddings() -> HuggingFaceEmbeddings:
     """
     Create a HuggingFace embeddings object for the configured embedding model.
-
-    We match Muhammet's configuration:
     - model_name: EMBEDDING_MODEL_NAME (e.g. "BAAI/bge-base-en-v1.5")
     - device: "cuda" if available, else "cpu"
     - normalize_embeddings=True (recommended for cosine similarity)
@@ -269,12 +270,12 @@ The dataset you are working with contains:
    "The provided product information does not include this detail."
 4. If the question is about comparing products, create a clear comparison using only the available data.
 5. Summaries must be concise and factual.
-6. Preserve any numerical values exactly as they appear in the context.
+6. TRY to keep your answer short and concise.Preserve any numerical values exactly as they appear in the context.
 7. If the user asks about availability or stock, respond with:  
    "This dataset does not include real-time availability information."
 8. When the question is unclear, ask for clarification.
 9. If metadata is available in the context (e.g., store, color, rating), include it in your answer.
-10. NEVER output raw JSON or database structures—respond in clean natural language.
+10. NEVER output raw JSON, table, or database structures—respond in clean natural language.
 
 ### Response Format:
 - Always provide a short, direct answer first.
@@ -305,6 +306,11 @@ The dataset you are working with contains:
 # ---------------------------------------------------------------------------
 # LLM instance
 # ---------------------------------------------------------------------------
+
+# Singleton LLM instance + initialization flag to avoid reloading API keys/models repeatedly
+_LLM_INSTANCE: Optional[ChatOpenAI] = None
+_LLM_INITIALIZED: bool = False
+
 def get_llm() -> ChatOpenAI:
     """
     Return a ChatOpenAI LLM instance using OpenRouter.
@@ -313,19 +319,27 @@ def get_llm() -> ChatOpenAI:
     OPENROUTER_API_KEY_PATH.
     """
 
-    # Load API key from .env file
-    load_dotenv(dotenv_path=OPENROUTER_API_KEY_PATH, override=True)
+    global _LLM_INSTANCE, _LLM_INITIALIZED
+
+    # Return cached instance if already created
+    if _LLM_INSTANCE is not None:
+        return _LLM_INSTANCE
+
+    # Only load .env once (first initialization). Subsequent calls reuse environment values.
+    if not _LLM_INITIALIZED:
+        load_dotenv(dotenv_path=OPENROUTER_API_KEY_PATH, override=True)
+        _LLM_INITIALIZED = True
+
     OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
     if OPENROUTER_API_KEY:
-        print("✅ API key was loaded successfully!")
-        print(f"📍 .env file location: {OPENROUTER_API_KEY_PATH}")
+        print("✅ API key is present (loaded or already set).")
     else:
         print("❌ API key couldn't be found. Please check the .env file.")
         print(f"🔍 Searched location: {OPENROUTER_API_KEY_PATH}")
 
-    # Create LLM instance with OpenRouter headers
-    llm = ChatOpenAI(
+    # Create and cache LLM instance
+    _LLM_INSTANCE = ChatOpenAI(
         model_name=CLOUD_LLM_MODEL_NAME[0],
         openai_api_base="https://openrouter.ai/api/v1",
         openai_api_key=OPENROUTER_API_KEY,
@@ -333,9 +347,9 @@ def get_llm() -> ChatOpenAI:
         max_tokens=2000,
     )
 
-    print("LLM instance created successfully.")
+    print("LLM instance created and cached.")
 
-    return llm
+    return _LLM_INSTANCE
 
 
 # ---------------------------------------------------------------------------
@@ -351,13 +365,54 @@ def format_docs(docs):
         )
     return "\n\n".join(formatted)
 
+
+# ---------------------------------------------------------------------------
+# Rewrite question with chat history
+# ---------------------------------------------------------------------------
+
+def rewrite_question_with_history(llm, question: str, history: Optional[List[Dict]]):
+    """Rewrite a follow-up question into a standalone question using chat history."""
+
+    if len(history) == 0:
+        return question
+    # Keep last N messages to limit tokens
+    last_msgs = history[-3:]
+    history_text = ""
+    for m in last_msgs:
+        history_text += f"{m['role'].upper()}: {m['content']}\n"
+    rewrite_prompt = f"""You are an assistant that rewrites follow-up questions into fully self-contained questions.
+
+### Instructions:
+1. Do NOT answer; only rewrite.
+2. Use ONLY the conversation history to resolve references like “this,” “that,” “these,” or “the product.”
+3. If a reference is ambiguous, make the best guess based on history.
+4. Do NOT add new facts not present in the history.
+5. PRESERVE product names, prices, specs, and other metadata EXACTLY as they appear.
+6. If the question is already standalone, return it as is.
+7. Output ONLY the rewritten question.
+
+### Conversation History:
+{history_text}
+
+### User's Latest Question:
+{question}
+
+### Rewritten Standalone Question:
+(Your answer here)
+"""
+    resp = llm.invoke(rewrite_prompt)
+    return getattr(resp, "content", question).strip()
+
+
+
 # ---------------------------------------------------------------------------
 # RAG pipeline function
 # ---------------------------------------------------------------------------
 def ask_question(
     question: str,
     k: int = 10,
-    use_reranker: bool = True,
+    use_reranker: bool = False,
+    session_id: str = "default_session",
 ) -> str:
     """
     Run the full RAG pipeline:
@@ -380,27 +435,54 @@ def ask_question(
         The generated answer from the LLM.
     """
 
-    # 1) Load or build vectorstore (cached singleton)
+    original_question = question # save for later
+
+    # 1) Get LLM instance
+    llm = get_llm()
+
+    # 2) Load chat history for user/session
+    # Normalize session_id to avoid accidental None/empty values causing DB NOT NULL errors
+    if not session_id:
+        session_id = "default_session"
+    else:
+        session_id = str(session_id).strip() or "default_session"
+
+    history = get_user_session(session_id=session_id) or []
+
+    if len(history) > 0:
+        # 1) rephrase if needed
+        question = rewrite_question_with_history(llm, question, history)
+
+    # 2) Load or build vectorstore (cached singleton)
     vs: Chroma = build_or_load_vectorstore()
 
-    # 2) Retrieve documents
-    docs: List[Document] = retrieve_documents(query=question, vs=vs, k=k, use_reranker=use_reranker)
+    # 3) Retrieve documents
+    docs: List[Document] = retrieve_documents(
+        query=question,
+        vs=vs,
+        k=k,
+        use_reranker=use_reranker,
+    )
 
-    # 3) Format retrieved documents
+    # 4) Format retrieved documents
     context = format_docs(docs)
 
-    # 4) Create prompt
+    # 5) Create prompt
     prompt = get_prompt_template()
-
-    # 5) Get LLM instance
-    llm = get_llm()
 
     # 6) Generate answer
     response = llm.invoke(prompt.format(context=context, question=question))
     answer = getattr(response, "content", "")
-    
+
     # 7) Convert answer to HTML
     html_answer = convert_answer_to_html(answer)
+
+    # 8) Save updated chat history
+    new_message_entry = [{"role": "user", "content": original_question}, {"role": "assistant", "content": answer}]
+    history.extend(new_message_entry)
+    print(f"Saving chat history for session_id={session_id!r}")
+    save_chat_history(session_id=session_id, messages=history, html_answer=html_answer)
+
     return html_answer
 
 # ---------------------------------------------------------------------------
